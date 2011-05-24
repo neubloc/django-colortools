@@ -1,0 +1,1 @@
+from colortools.tests.test import ColorTextTestResultTestCase
