@@ -26,18 +26,18 @@ At the current state you don't need to include ``colorama`` in your
 	    ...
 	)
 
-Specify test runner class:
+Specify test runner class::
 
 	TEST_RUNNER = "colortools.test.ColorDjangoTestSuiteRunner"
 
-or:
+or::
 
 	TEST_RUNNER = "colortools.test.ColorProfilerDjangoTestSuiteRunner"
 
 The first test runner class will only add colors to your report. The second will also 
 generate pstats report for all test methods.
  
-Additionally you can define a list of apps to test:
+Additionally you can define a list of apps to test::
 
 	TEST_APPS = (
 		'userprofile',
