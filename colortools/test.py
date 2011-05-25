@@ -174,6 +174,14 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
         return ColorTextTestRunner(verbosity=self.verbosity,
                                        failfast=self.failfast).run(suite)
 
+    def build_suite(self, test_labels, extra_tests=None, **kwargs):
+        TEST_APPS = getattr(settings, 'TEST_APPS', None)
+        if not test_labels and TEST_APPS:
+            test_labels = TEST_APPS
+
+        return super(ColorDjangoTestSuiteRunner, self).build_suite(test_labels, **kwargs)
+
+
 class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
     """
     Support for coloring error output
