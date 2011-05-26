@@ -17,12 +17,12 @@ To install the latest stable version::
 
 
 
-At the current state you don't need to include ``colorama`` in your 
+At the current state you don't need to include ``colortools`` in your 
 ``INSTALLED_APPS`` but you could still do it if you want to run tests from
-``colorama``::
+``colortools``::
 
 	INSTALLED_APPS = (
-	    'colorama',
+	    'colortools',
 	    ...
 	)
 
