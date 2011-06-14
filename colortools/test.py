@@ -223,9 +223,9 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
         return oldnames, mirrors
 
     @staticmethod
-    def fixture_list(fixtures):
+    def fixture_list(*fixtures):
         TEST_GLOBAL_FIXTURES = getattr(settings, 'TEST_GLOBAL_FIXTURES', [])
-        return fixture_list(fixtures, TEST_GLOBAL_FIXTURES)
+        return fixture_list(list(fixtures), TEST_GLOBAL_FIXTURES)
 
 
 

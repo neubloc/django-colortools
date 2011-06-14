@@ -62,11 +62,11 @@ class ColorDjangoTestSuiteRunnerTestCase(TestCase):
 
     def test_fixture_list(self):
         settings.TEST_GLOBAL_FIXTURES = ['one']
-        self.assertEqual(ColorDjangoTestSuiteRunner.fixture_list(['one']), [])
+        self.assertEqual(ColorDjangoTestSuiteRunner.fixture_list('one'), [])
         settings.TEST_GLOBAL_FIXTURES = []
 
     def test_fixture_list_no_settings(self):
-        self.assertEqual(ColorDjangoTestSuiteRunner.fixture_list(['one']), ['one'])
+        self.assertEqual(ColorDjangoTestSuiteRunner.fixture_list('one'), ['one'])
 
 class FixtureListFunctionTestCase(TestCase):
 
