@@ -6,8 +6,8 @@
 import time
 
 from django.conf import settings
-from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.management import call_command
+from django.db import connections
 from django.test.simple import DjangoTestSuiteRunner
 from django.utils.unittest.runner import TextTestResult, TextTestRunner, registerResult
 from django.utils import termcolors
@@ -167,6 +167,18 @@ class ColorTextTestRunner(TextTestRunner):
         self.stream.colorClear()
         return result
 
+def fixture_list(fixtures, global_fixtures=[]):
+    if fixtures == global_fixtures:
+        return []
+    else:
+        start = 0
+        for x in range(len(global_fixtures)):
+            if (len(fixtures) == start or len(global_fixtures) == start
+                or fixtures[x] != global_fixtures[x]):
+                break
+            start += 1
+        return fixtures[start:]
+
 class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
     """
     Support for coloring error output
@@ -176,11 +188,45 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
                                        failfast=self.failfast).run(suite)
 
     def build_suite(self, test_labels, extra_tests=None, **kwargs):
+        """
+        if no test labels has been defined for this test run then try to test
+        only application defined in TEST_APPS list. The TEST_APPS list should
+        consist only of your project apps excluding third party and django apps.
+        """
+
         TEST_APPS = getattr(settings, 'TEST_APPS', None)
         if not test_labels and TEST_APPS:
             test_labels = TEST_APPS
 
         return super(ColorDjangoTestSuiteRunner, self).build_suite(test_labels, **kwargs)
+
+    def setup_databases(self, **kwargs):
+        """
+        calls super setup_databases and then loads global fixtures for all databases
+        from TEST_GLOBAL_FIXTURES setting
+        """
+
+        oldnames, mirrors = super(ColorDjangoTestSuiteRunner, self).setup_databases(**kwargs)
+
+        if not all(conn.features.supports_transactions for conn in connections.all()):
+            raise Exception("All connections must support transactions")
+
+        TEST_GLOBAL_FIXTURES = getattr(settings, 'TEST_GLOBAL_FIXTURES', [])
+        if TEST_GLOBAL_FIXTURES:
+            for db in connections:
+                call_command('loaddata', *TEST_GLOBAL_FIXTURES, **{
+                                                            'verbosity': 0,
+                                                            'commit': True,
+                                                            'database': db
+                                                            })
+
+        return oldnames, mirrors
+
+    @staticmethod
+    def fixture_list(fixtures):
+        TEST_GLOBAL_FIXTURES = getattr(settings, 'TEST_GLOBAL_FIXTURES', [])
+        return fixture_list(fixtures, TEST_GLOBAL_FIXTURES)
+
 
 
 class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
@@ -189,7 +235,6 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
     """
     def run_suite(self, suite, **kwargs):
         import cProfile
-        from django.conf import settings
         import unipath
         import pstats
         import StringIO
@@ -256,6 +301,10 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
         stats = ColorStats(str(profile_file), stream=results)
         stats.sort_stats('cumulative')
         stats.print_stats('\(test\_*')
+
+        stats.print_stats('\(\_fixture\_setup*')
+
+        stats.print_stats('\(calculate\_av*')
 
 
         print results.getvalue()

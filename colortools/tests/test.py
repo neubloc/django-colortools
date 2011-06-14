@@ -2,8 +2,10 @@
 from mock import Mock, patch
 from django.test import TestCase
 from django.utils.unittest.runner import TextTestResult
+from django.conf import settings
 
-from colortools.test import ColorTextTestResult
+from colortools.test import (ColorTextTestResult, ColorDjangoTestSuiteRunner,
+                             fixture_list)
 
 class ColorTextTestResultTestCase(TestCase):
 
@@ -55,3 +57,36 @@ class ColorTextTestResultTestCase(TestCase):
         self.assertEqual(self.result.stream.colorClear.call_count, 2)
 
         self.assertEqual(mock_method.call_count, 2)
+
+class ColorDjangoTestSuiteRunnerTestCase(TestCase):
+
+    def test_fixture_list(self):
+        settings.TEST_GLOBAL_FIXTURES = ['one']
+        self.assertEqual(ColorDjangoTestSuiteRunner.fixture_list(['one']), [])
+        settings.TEST_GLOBAL_FIXTURES = []
+
+    def test_fixture_list_no_settings(self):
+        self.assertEqual(ColorDjangoTestSuiteRunner.fixture_list(['one']), ['one'])
+
+class FixtureListFunctionTestCase(TestCase):
+
+    def test_empty_should_return_empty(self):
+        self.assertEqual([], fixture_list([]))
+
+    def test_if_no_setting_defined_return_as_it_is(self):
+        self.assertEqual(['one'], fixture_list(['one']))
+
+    def test_return_empty_list_if_parameters_are_the_same(self):
+        self.assertEqual([], fixture_list(['one'], ['one']))
+
+    def test_return_first_list_if_second_is_different(self):
+        self.assertEqual(['one'], fixture_list(['one'], ['two']))
+
+    def test_return_first_list_excluding_first_element_from_the_second(self):
+        self.assertEqual(['two'], fixture_list(['one', 'two'], ['one']))
+
+    def test_return_empty_by_excluding_all_elements(self):
+        self.assertEqual([], fixture_list(['one', 'two'], ['one', 'two']))
+
+    def test_return_first_list_excluding_first_element_from_the_second_2(self):
+        self.assertEqual(['three'], fixture_list(['one', 'two', 'three'], ['one', 'two']))
