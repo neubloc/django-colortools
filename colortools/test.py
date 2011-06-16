@@ -230,7 +230,6 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
 
             instance._old_fixture_setup()
 
-        #test._old_fixture_setup = test._fixture_setup
         setattr(TestCase, '_old_fixture_setup', getattr(TestCase, '_fixture_setup'))
         setattr(TestCase, '_fixture_setup', fast_fixture_setup)
         new_suite = unittest.TestSuite()
@@ -384,8 +383,6 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
             stats = ColorStats(str(profile_file), stream=results)
             stats.sort_stats('cumulative')
             stats.print_stats('\(test\_*')
-
-            stats.print_stats('\(\_fixture\_setup*')
 
             print results.getvalue()
         else:
