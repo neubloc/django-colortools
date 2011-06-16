@@ -6,6 +6,7 @@ Colorful replacement for Django's testrunner
 
 * Makes your test output more colorful
 * Profile report for all tests methods
+* Runs you fixture heavy TestCases much faster
 
 ------------
 Installation
@@ -43,6 +44,25 @@ Additionally you can define a list of apps to test::
 		'userprofile',
 		...
 	)
+
+----------
+Test Boost
+----------
+
+It's pretty common to have many test cases that share the same set of fixtures. It's
+also very common to have many test in your TestCase classes. The problem with Djano's
+fixture loading routine (version 1.3) is that it loads all fixtures before each test.
+
+If you would think of a fixture as a state of database then this approach is very
+inefficient. A better approach would be to: 
+
+1. Load a fixture set
+2. Commit
+3. Run test in transaction
+4. Rollback (this will bring our database to a state from point 2.)
+5. Repeat steps 3 and 4 for all test that shares the same fixture set
+6. Dump data if necessary or add another fixtures to the set already loaded
+7. Run next group of tests.  
 
 -----
 Usage
