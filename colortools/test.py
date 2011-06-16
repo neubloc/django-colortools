@@ -5,12 +5,14 @@
 
 import time
 
+from django.test import TestCase
 from django.conf import settings
 from django.core.management import call_command
 from django.db import connections
 from django.test.simple import DjangoTestSuiteRunner
 from django.utils.unittest.runner import TextTestResult, TextTestRunner, registerResult
 from django.utils import termcolors
+from django.utils import unittest
 
 
 _COLORS = {
@@ -179,13 +181,99 @@ def fixture_list(fixtures, global_fixtures=[]):
             start += 1
         return fixtures[start:]
 
+
 class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
     """
     Support for coloring error output
     """
+    def wrap_tests(self, suite):
+        """
+        monkeypatches TestCase tests. Sorts them by fixtures and then
+        optimizes fixture loading.
+        """
+
+        self.currernt_fixtures = []
+        self.flushes = 0
+        self.fixtures = 0
+        self.fixtures_prevented = 0
+        self.fixtures_sets = []
+
+        def fast_fixture_setup(instance):
+            fixtures = getattr(instance, 'fixtures', [])
+
+            loaddata = fixtures
+            flush_db = True
+            if len(self.currernt_fixtures) <= len(fixtures):
+                if fixtures[:len(self.currernt_fixtures)] == self.currernt_fixtures:
+                    # current fixtures are still OK
+                    loaddata = fixtures[len(self.currernt_fixtures):]
+                    self.fixtures_prevented += len(self.currernt_fixtures)
+                    flush_db = False
+
+            if flush_db:
+                self.flushes += 1
+                self.currernt_fixtures = []
+                for db in connections:
+                    call_command('flush', verbosity=0, interactive=False, database=db)
+
+            if len(loaddata):
+                self.fixtures += len(loaddata)
+                self.fixtures_sets.append(self.currernt_fixtures + loaddata)
+                for db in connections:
+                    call_command('loaddata', *loaddata, **{
+                                                        'verbosity': 0,
+                                                        'commit': True,
+                                                        'database': db
+                                                        })
+            instance.fixtures = []
+            self.currernt_fixtures = fixtures
+
+            instance._old_fixture_setup()
+
+        setattr(TestCase, '_old_fixture_setup', getattr(TestCase, '_fixture_setup'))
+        setattr(TestCase, '_fixture_setup', fast_fixture_setup)
+        new_suite = unittest.TestSuite()
+
+        other_tests = []
+        test_cases = []
+        for test in suite:
+            if isinstance(test, TestCase):
+                # optimize only TestCases - transaction based tests
+                test._runner = self
+                test_cases.append(test)
+            else:
+                other_tests.append(test)
+
+        def comparator(tc1, tc2):
+            tc1_fixtures = getattr(tc1, 'fixtures', [])
+            tc2_fixtures = getattr(tc2, 'fixtures', [])
+            if tc1_fixtures == tc2_fixtures:
+                return 0
+            else:
+                return tc1_fixtures > tc2_fixtures and 1 or - 1
+
+        test_cases.sort(comparator)
+
+        new_suite.addTests(test_cases + other_tests)
+
+        return new_suite
+
+    def print_fixture_statistics(self):
+        print("")
+        print("Fixture statistics:")
+        print("    Number of fixtures loaded for TestCases: %s" % self.fixtures)
+        print("    Number of fixtures prevented from "\
+                "loading for TestCases: %s" % self.fixtures_prevented)
+        print("    Number of database flushes: %s" % self.flushes)
+        print("    Fixture sets:")
+        for set in self.fixtures_sets:
+            print("        %s" % set)
+        print("")
+
     def run_suite(self, suite, **kwargs):
-        return ColorTextTestRunner(verbosity=self.verbosity,
+        result = ColorTextTestRunner(verbosity=self.verbosity,
                                        failfast=self.failfast).run(suite)
+        return result
 
     def build_suite(self, test_labels, extra_tests=None, **kwargs):
         """
@@ -198,7 +286,7 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
         if not test_labels and TEST_APPS:
             test_labels = TEST_APPS
 
-        return super(ColorDjangoTestSuiteRunner, self).build_suite(test_labels, **kwargs)
+        return self.wrap_tests(super(ColorDjangoTestSuiteRunner, self).build_suite(test_labels, **kwargs))
 
     def setup_databases(self, **kwargs):
         """
@@ -206,21 +294,8 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
         from TEST_GLOBAL_FIXTURES setting
         """
 
-        oldnames, mirrors = super(ColorDjangoTestSuiteRunner, self).setup_databases(**kwargs)
+        return super(ColorDjangoTestSuiteRunner, self).setup_databases(**kwargs)
 
-        if not all(conn.features.supports_transactions for conn in connections.all()):
-            raise Exception("All connections must support transactions")
-
-        TEST_GLOBAL_FIXTURES = getattr(settings, 'TEST_GLOBAL_FIXTURES', [])
-        if TEST_GLOBAL_FIXTURES:
-            for db in connections:
-                call_command('loaddata', *TEST_GLOBAL_FIXTURES, **{
-                                                            'verbosity': 0,
-                                                            'commit': True,
-                                                            'database': db
-                                                            })
-
-        return oldnames, mirrors
 
     @staticmethod
     def fixture_list(*fixtures):
@@ -236,77 +311,83 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
     def run_suite(self, suite, **kwargs):
         import cProfile
         import unipath
-        import pstats
         import StringIO
 
-        root = unipath.Path(settings.APPLICATION_ROOT)
-
-        class ColorStats(pstats.Stats):
-            def __init__(self, *args, **kwargs):
-                pstats.Stats.__init__(self, *args, **kwargs)
-
-                class dummy(object): pass
-                style = dummy()
-                style.LONGRUN = termcolors.make_style(opts=('bold',), fg='red')
-                style.NAME = termcolors.make_style(opts=('bold',), fg='cyan')
-                style.FILE = termcolors.make_style(opts=('bold',), fg='yellow')
-                style.APP = termcolors.make_style(opts=('bold',), fg='white')
-                self.style = style
-
-            def print_title(self):
-                print >> self.stream, 'calls  cumtime  percall',
-                print >> self.stream, 'filename:lineno(function)'
-
-            def print_line(self, func):  # hack : should print percentages
-                cc, nc, tt, ct, callers = self.stats[func] #@UnusedVariable
-                c = str(nc)
-                if nc != cc:
-                    c = c + '/' + str(cc)
-                print >> self.stream, c.rjust(5),
-                print >> self.stream, pstats.f8(ct),
-                if cc == 0:
-                    print >> self.stream, ' '*8,
-                else:
-                    percall = float(ct) / cc
-                    result = pstats.f8(percall)
-                    if percall > 0.1:
-                        result = self.style.LONGRUN(result)
-                    print >> self.stream, result,
-                print >> self.stream, self.func_std_string(func)
-
-            def func_std_string(self, func_name): # match what old profile produced
-                if func_name[:2] == ('~', 0):
-                    # special case for built-in functions
-                    name = func_name[2]
-                    if name.startswith('<') and name.endswith('>'):
-                        return '{%s}' % name[1:-1]
-                    else:
-                        return name
-                else:
-                    file, line, name = func_name
-                    file = unipath.Path(file)
-                    return ("%s (%s:%d [%s])" %
-                        (self.style.NAME(name),
-                         self.style.FILE(file.name), line,
-                         self.style.APP(file.parent.parent.name)))
-
-        profile_file = root.child('.profiler')
+        use_profiler = True
+        try:
+            import pstats
+        except:
+            use_profiler = False
 
         result = []
-        def profile_run():
-            result.append(super(ColorProfilerDjangoTestSuiteRunner, self).run_suite(suite, **kwargs))
-        cProfile.runctx('profile_run()', {'profile_run':profile_run}, {}, str(profile_file))
+        def _profile_run():
+            result.append(super(ColorProfilerDjangoTestSuiteRunner,
+                                self).run_suite(suite, **kwargs))
 
-        results = StringIO.StringIO()
-        stats = ColorStats(str(profile_file), stream=results)
-        stats.sort_stats('cumulative')
-        stats.print_stats('\(test\_*')
+        if use_profiler:
+            root = unipath.Path(settings.APPLICATION_ROOT)
+            profile_file = root.child('.profiler')
 
-        stats.print_stats('\(\_fixture\_setup*')
+            class ColorStats(pstats.Stats):
+                def __init__(self, *args, **kwargs):
+                    pstats.Stats.__init__(self, *args, **kwargs)
 
-        stats.print_stats('\(calculate\_av*')
+                    class dummy(object): pass
+                    style = dummy()
+                    style.LONGRUN = termcolors.make_style(opts=('bold',), fg='red')
+                    style.NAME = termcolors.make_style(opts=('bold',), fg='cyan')
+                    style.FILE = termcolors.make_style(opts=('bold',), fg='yellow')
+                    style.APP = termcolors.make_style(opts=('bold',), fg='white')
+                    self.style = style
 
+                def print_title(self):
+                    print >> self.stream, 'calls  cumtime  percall',
+                    print >> self.stream, 'filename:lineno(function)'
 
-        print results.getvalue()
+                def print_line(self, func):  # hack : should print percentages
+                    cc, nc, tt, ct, callers = self.stats[func] #@UnusedVariable
+                    c = str(nc)
+                    if nc != cc:
+                        c = c + '/' + str(cc)
+                    print >> self.stream, c.rjust(5),
+                    print >> self.stream, pstats.f8(ct),
+                    if cc == 0:
+                        print >> self.stream, ' '*8,
+                    else:
+                        percall = float(ct) / cc
+                        result = pstats.f8(percall)
+                        if percall > 0.1:
+                            result = self.style.LONGRUN(result)
+                        print >> self.stream, result,
+                    print >> self.stream, self.func_std_string(func)
+
+                def func_std_string(self, func_name): # match what old profile produced
+                    if func_name[:2] == ('~', 0):
+                        # special case for built-in functions
+                        name = func_name[2]
+                        if name.startswith('<') and name.endswith('>'):
+                            return '{%s}' % name[1:-1]
+                        else:
+                            return name
+                    else:
+                        file, line, name = func_name
+                        file = unipath.Path(file)
+                        return ("%s (%s:%d [%s])" %
+                            (self.style.NAME(name),
+                             self.style.FILE(file.name), line,
+                             self.style.APP(file.parent.parent.name)))
+
+            cProfile.runctx('profile_run()', {'profile_run':_profile_run}, {}, str(profile_file))
+
+            results = StringIO.StringIO()
+            stats = ColorStats(str(profile_file), stream=results)
+            stats.sort_stats('cumulative')
+            stats.print_stats('\(test\_*')
+
+            print results.getvalue()
+        else:
+            _profile_run()
+
+        self.print_fixture_statistics()
 
         return result[0]
