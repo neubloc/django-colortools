@@ -8,11 +8,13 @@ import time
 from django.test import TestCase
 from django.conf import settings
 from django.core.management import call_command
-from django.db import connections
+from django.db import connections, transaction
 from django.test.simple import DjangoTestSuiteRunner
 from django.utils.unittest.runner import TextTestResult, TextTestRunner, registerResult
 from django.utils import termcolors
 from django.utils import unittest
+from django.test.testcases import connections_support_transactions, disable_transaction_methods
+from django.db import DEFAULT_DB_ALIAS
 
 
 _COLORS = {
@@ -199,6 +201,9 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
         self.fixtures_sets = []
 
         def fast_fixture_setup(instance):
+            if not connections_support_transactions():
+                return super(TestCase, instance)._fixture_setup()
+
             fixtures = getattr(instance, 'fixtures', [])
 
             loaddata = fixtures
@@ -225,12 +230,23 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
                                                         'commit': True,
                                                         'database': db
                                                         })
-            delattr(instance, 'fixtures')
             self.currernt_fixtures = fixtures
 
-            instance._old_fixture_setup()
+            # If the test case has a multi_db=True flag, setup all databases.
+            # Otherwise, just use default.
+            if getattr(self, 'multi_db', False):
+                databases = connections
+            else:
+                databases = [DEFAULT_DB_ALIAS]
 
-        setattr(TestCase, '_old_fixture_setup', getattr(TestCase, '_fixture_setup'))
+            for db in databases:
+                transaction.enter_transaction_management(using=db)
+                transaction.managed(True, using=db)
+            disable_transaction_methods()
+
+            from django.contrib.sites.models import Site
+            Site.objects.clear_cache()
+
         setattr(TestCase, '_fixture_setup', fast_fixture_setup)
         new_suite = unittest.TestSuite()
 
