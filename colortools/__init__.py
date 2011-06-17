@@ -8,7 +8,7 @@ django-colortools
 """
 
 __all__ = ('__version__', '__build__', '__docformat__', 'get_revision')
-__version__ = (0, 3, 0)
+__version__ = (0, 3, 1)
 __docformat__ = 'restructuredtext en'
 
 import os

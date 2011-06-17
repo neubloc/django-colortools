@@ -225,7 +225,7 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
                                                         'commit': True,
                                                         'database': db
                                                         })
-            instance.fixtures = []
+            delattr(instance, 'fixtures')
             self.currernt_fixtures = fixtures
 
             instance._old_fixture_setup()
