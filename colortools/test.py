@@ -5,17 +5,18 @@
 
 import time
 
-from django.test import TestCase
 from django.conf import settings
 from django.core.management import call_command
-from django.db import connections, transaction
+from django.db import connections, transaction, reset_queries
 from django.test.simple import DjangoTestSuiteRunner
 from django.utils.unittest.runner import TextTestResult, TextTestRunner, registerResult
 from django.utils import termcolors
 from django.utils import unittest
-from django.test.testcases import connections_support_transactions, disable_transaction_methods
+from django.test.testcases import (connections_support_transactions, disable_transaction_methods,
+                                   TransactionTestCase, TestCase)
 from django.db import DEFAULT_DB_ALIAS
 
+from colortools.querystats import QueryStats
 
 _COLORS = {
     'FAIL': {'fg': 'red', 'opts': ('bold', 'noreset')},
@@ -171,23 +172,18 @@ class ColorTextTestRunner(TextTestRunner):
         self.stream.colorClear()
         return result
 
-def fixture_list(fixtures, global_fixtures=[]):
-    if fixtures == global_fixtures:
-        return []
-    else:
-        start = 0
-        for x in range(len(global_fixtures)):
-            if (len(fixtures) == start or len(global_fixtures) == start
-                or fixtures[x] != global_fixtures[x]):
-                break
-            start += 1
-        return fixtures[start:]
-
 
 class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
     """
     Support for coloring error output
     """
+
+    currernt_fixtures = []
+    flushes = 0
+    fixtures = 0
+    fixtures_prevented = 0
+    fixtures_sets = []
+
     def wrap_tests(self, suite):
         """
         monkeypatches TestCase tests. Sorts them by fixtures and then
@@ -248,6 +244,7 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
             Site.objects.clear_cache()
 
         setattr(TestCase, '_fixture_setup', fast_fixture_setup)
+
         new_suite = unittest.TestSuite()
 
         other_tests = []
@@ -304,26 +301,62 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
 
         return self.wrap_tests(super(ColorDjangoTestSuiteRunner, self).build_suite(test_labels, **kwargs))
 
-    def setup_databases(self, **kwargs):
-        """
-        calls super setup_databases and then loads global fixtures for all databases
-        from TEST_GLOBAL_FIXTURES setting
-        """
-
-        return super(ColorDjangoTestSuiteRunner, self).setup_databases(**kwargs)
-
-
-    @staticmethod
-    def fixture_list(*fixtures):
-        TEST_GLOBAL_FIXTURES = getattr(settings, 'TEST_GLOBAL_FIXTURES', [])
-        return fixture_list(list(fixtures), TEST_GLOBAL_FIXTURES)
-
-
 
 class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
     """
     Support for coloring error output
     """
+    queries_stats = QueryStats()
+
+    def count_queries(self):
+        return getattr(settings, 'TEST_COUNT_QUERIES', False)
+
+    def wrap_tests(self, suite):
+
+        def query_counter_call(instance, result=None):
+            """
+            Counts db queries done by test
+            
+            Wrapper around default __call__ method to perform common Django test
+            set up. This means that user-defined Test Cases aren't required to
+            include a call to super().setUp().
+            """
+            instance.client = instance.client_class()
+            try:
+                instance._pre_setup()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except Exception:
+                import sys
+                result.addError(instance, sys.exc_info())
+                return
+
+            udc_values = {}
+            queries = 0
+            for db in connections:
+                connection = connections[db]
+                udc_values[db] = connection.use_debug_cursor
+                connection.use_debug_cursor = True
+                queries += len(connection.queries)
+
+            with self.queries_stats.context(instance._testMethodName):
+                super(TransactionTestCase, instance).__call__(result)
+
+
+            try:
+                instance._post_teardown()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except Exception:
+                import sys
+                result.addError(instance, sys.exc_info())
+                return
+
+        if self.count_queries():
+            setattr(TransactionTestCase, '__call__', query_counter_call)
+
+        return super(ColorProfilerDjangoTestSuiteRunner, self).wrap_tests(suite)
+
     def run_suite(self, suite, **kwargs):
         import cProfile
         import unipath
@@ -331,7 +364,7 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
 
         use_profiler = True
         try:
-            import pstats
+            import pstats #@UnusedImport
         except:
             use_profiler = False
 
@@ -341,64 +374,20 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
                                 self).run_suite(suite, **kwargs))
 
         if use_profiler:
+            from colortools.stats import ColorStats
+
             root = unipath.Path(settings.APPLICATION_ROOT)
             profile_file = root.child('.profiler')
-
-            class ColorStats(pstats.Stats):
-                def __init__(self, *args, **kwargs):
-                    pstats.Stats.__init__(self, *args, **kwargs)
-
-                    class dummy(object): pass
-                    style = dummy()
-                    style.LONGRUN = termcolors.make_style(opts=('bold',), fg='red')
-                    style.NAME = termcolors.make_style(opts=('bold',), fg='cyan')
-                    style.FILE = termcolors.make_style(opts=('bold',), fg='yellow')
-                    style.APP = termcolors.make_style(opts=('bold',), fg='white')
-                    self.style = style
-
-                def print_title(self):
-                    print >> self.stream, 'calls  cumtime  percall',
-                    print >> self.stream, 'filename:lineno(function)'
-
-                def print_line(self, func):  # hack : should print percentages
-                    cc, nc, tt, ct, callers = self.stats[func] #@UnusedVariable
-                    c = str(nc)
-                    if nc != cc:
-                        c = c + '/' + str(cc)
-                    print >> self.stream, c.rjust(5),
-                    print >> self.stream, pstats.f8(ct),
-                    if cc == 0:
-                        print >> self.stream, ' '*8,
-                    else:
-                        percall = float(ct) / cc
-                        result = pstats.f8(percall)
-                        if percall > 0.1:
-                            result = self.style.LONGRUN(result)
-                        print >> self.stream, result,
-                    print >> self.stream, self.func_std_string(func)
-
-                def func_std_string(self, func_name): # match what old profile produced
-                    if func_name[:2] == ('~', 0):
-                        # special case for built-in functions
-                        name = func_name[2]
-                        if name.startswith('<') and name.endswith('>'):
-                            return '{%s}' % name[1:-1]
-                        else:
-                            return name
-                    else:
-                        file, line, name = func_name
-                        file = unipath.Path(file)
-                        return ("%s (%s:%d [%s])" %
-                            (self.style.NAME(name),
-                             self.style.FILE(file.name), line,
-                             self.style.APP(file.parent.parent.name)))
 
             cProfile.runctx('profile_run()', {'profile_run':_profile_run}, {}, str(profile_file))
 
             results = StringIO.StringIO()
-            stats = ColorStats(str(profile_file), stream=results)
-            stats.sort_stats('cumulative')
-            stats.print_stats('\(test\_*')
+            if self.count_queries():
+                stats = ColorStats(str(profile_file), stream=results,
+                                   extra_stats=self.queries_stats)
+            else:
+                stats = ColorStats(str(profile_file), stream=results)
+            stats.print_tests_report()
 
             print results.getvalue()
         else:
