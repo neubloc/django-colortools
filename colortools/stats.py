@@ -10,8 +10,6 @@ from django.utils import termcolors
 
 class ColorStats(pstats.Stats):
     def __init__(self, *args, **kwargs):
-        pstats.Stats.__init__(self, *args, **kwargs)
-
         class dummy(object): pass
         style = dummy()
         style.LONGRUN = termcolors.make_style(opts=('bold',), fg='red')
@@ -23,13 +21,23 @@ class ColorStats(pstats.Stats):
 
         self.style = style
 
+        if 'extra_stats' in kwargs:
+            self.extra_stats = kwargs['extra_stats']
+            del kwargs['extra_stats']
+        else:
+            self.extra_stats = None
+
+        pstats.Stats.__init__(self, *args, **kwargs)
+
     def print_tests_report(self):
         self.sort_stats('cumulative')
         self.print_stats('\(test\_*')
 
     def print_title(self):
         print >> self.stream, 'calls  cumtime  percall',
-        print >> self.stream, 'filename:lineno(function)'
+        if self.extra_stats:
+            print >> self.stream, self.extra_stats.name().rjust(9),
+        print >> self.stream, 'test (file:lineno [app])'
 
     def print_line(self, func):  # hack : should print percentages
         cc, nc, tt, ct, callers = self.stats[func] #@UnusedVariable
@@ -46,6 +54,9 @@ class ColorStats(pstats.Stats):
             if percall > 0.1:
                 result = self.style.LONGRUN(result)
             print >> self.stream, result,
+        if self.extra_stats:
+            print >> self.stream, str(self.extra_stats[func[2]]).rjust(9),
+
         print >> self.stream, self.func_test_string(func)
 
     def func_test_string(self, func_name): # match what old profile produced
@@ -131,3 +142,4 @@ class ColorStats(pstats.Stats):
             return ("%s (%s:%d)" %
                 (self.style.NAME(name),
                  self.style.FILE(file.relative()), line))
+
