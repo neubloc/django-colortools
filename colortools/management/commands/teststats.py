@@ -21,10 +21,16 @@ class Command(BaseCommand):
         file = options.get('file', '.profiler')
 
         try:
-            import pstats
+            import pstats #@UnusedImport
         except:
-            self.stderr.write("")
+            self.stderr.write("Couldn't import pstats module")
+            return
 
-        stats = pstats.Stats(file, stream=self.stdout)
+        from colortools.stats import ColorStats
 
-        stats.print_callees(*test_names)
+        stats = ColorStats(file, stream=self.stdout)
+
+        if len(test_names) == 0:
+            stats.print_tests_report()
+        else:
+            stats.print_callees(*test_names)

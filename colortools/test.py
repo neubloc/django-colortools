@@ -331,7 +331,7 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
 
         use_profiler = True
         try:
-            import pstats
+            import pstats #@UnusedImport
         except:
             use_profiler = False
 
@@ -341,64 +341,16 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
                                 self).run_suite(suite, **kwargs))
 
         if use_profiler:
+            from colortools.stats import ColorStats
+
             root = unipath.Path(settings.APPLICATION_ROOT)
             profile_file = root.child('.profiler')
-
-            class ColorStats(pstats.Stats):
-                def __init__(self, *args, **kwargs):
-                    pstats.Stats.__init__(self, *args, **kwargs)
-
-                    class dummy(object): pass
-                    style = dummy()
-                    style.LONGRUN = termcolors.make_style(opts=('bold',), fg='red')
-                    style.NAME = termcolors.make_style(opts=('bold',), fg='cyan')
-                    style.FILE = termcolors.make_style(opts=('bold',), fg='yellow')
-                    style.APP = termcolors.make_style(opts=('bold',), fg='white')
-                    self.style = style
-
-                def print_title(self):
-                    print >> self.stream, 'calls  cumtime  percall',
-                    print >> self.stream, 'filename:lineno(function)'
-
-                def print_line(self, func):  # hack : should print percentages
-                    cc, nc, tt, ct, callers = self.stats[func] #@UnusedVariable
-                    c = str(nc)
-                    if nc != cc:
-                        c = c + '/' + str(cc)
-                    print >> self.stream, c.rjust(5),
-                    print >> self.stream, pstats.f8(ct),
-                    if cc == 0:
-                        print >> self.stream, ' '*8,
-                    else:
-                        percall = float(ct) / cc
-                        result = pstats.f8(percall)
-                        if percall > 0.1:
-                            result = self.style.LONGRUN(result)
-                        print >> self.stream, result,
-                    print >> self.stream, self.func_std_string(func)
-
-                def func_std_string(self, func_name): # match what old profile produced
-                    if func_name[:2] == ('~', 0):
-                        # special case for built-in functions
-                        name = func_name[2]
-                        if name.startswith('<') and name.endswith('>'):
-                            return '{%s}' % name[1:-1]
-                        else:
-                            return name
-                    else:
-                        file, line, name = func_name
-                        file = unipath.Path(file)
-                        return ("%s (%s:%d [%s])" %
-                            (self.style.NAME(name),
-                             self.style.FILE(file.name), line,
-                             self.style.APP(file.parent.parent.name)))
 
             cProfile.runctx('profile_run()', {'profile_run':_profile_run}, {}, str(profile_file))
 
             results = StringIO.StringIO()
             stats = ColorStats(str(profile_file), stream=results)
-            stats.sort_stats('cumulative')
-            stats.print_stats('\(test\_*')
+            stats.print_tests_report()
 
             print results.getvalue()
         else:
