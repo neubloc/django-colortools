@@ -7,7 +7,7 @@ import time
 
 from django.conf import settings
 from django.core.management import call_command
-from django.db import connections, transaction, reset_queries
+from django.db import connections, transaction
 from django.test.simple import DjangoTestSuiteRunner
 from django.utils.unittest.runner import TextTestResult, TextTestRunner, registerResult
 from django.utils import termcolors
@@ -348,7 +348,7 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
             except (KeyboardInterrupt, SystemExit):
                 raise
             except Exception:
-                import sys
+                import sys #@Reimport
                 result.addError(instance, sys.exc_info())
                 return
 
@@ -382,17 +382,22 @@ class ColorProfilerDjangoTestSuiteRunner(ColorDjangoTestSuiteRunner):
             cProfile.runctx('profile_run()', {'profile_run':_profile_run}, {}, str(profile_file))
 
             results = StringIO.StringIO()
+            extra_args = {
+                'stream': results,
+                'less_columns': True,
+            }
             if self.count_queries():
-                stats = ColorStats(str(profile_file), stream=results,
-                                   extra_stats=self.queries_stats)
-            else:
-                stats = ColorStats(str(profile_file), stream=results)
-            stats.print_tests_report()
+                extra_args['extra_stats'] = self.queries_stats
+
+            stats = ColorStats(str(profile_file), **extra_args)
+            stats.print_tests_report(getattr(settings, 'TEST_PROFILER_REPORT_LIMIT', 0))
 
             print results.getvalue()
         else:
             _profile_run()
 
         self.print_fixture_statistics()
+        if self.count_queries():
+            print self.queries_stats
 
         return result[0]

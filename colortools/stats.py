@@ -10,6 +10,21 @@ from django.utils import termcolors
 
 class ColorStats(pstats.Stats):
     def __init__(self, *args, **kwargs):
+        self._init_style()
+
+        self.extra_stats = None
+        if 'extra_stats' in kwargs:
+            self.extra_stats = kwargs['extra_stats']
+            del kwargs['extra_stats']
+
+        self.less_columns = False
+        if 'less_columns' in kwargs:
+            self.less_columns = kwargs['less_columns']
+            del kwargs['less_columns']
+
+        pstats.Stats.__init__(self, *args, **kwargs)
+
+    def _init_style(self):
         class dummy(object): pass
         style = dummy()
         style.LONGRUN = termcolors.make_style(opts=('bold',), fg='red')
@@ -21,30 +36,35 @@ class ColorStats(pstats.Stats):
 
         self.style = style
 
-        if 'extra_stats' in kwargs:
-            self.extra_stats = kwargs['extra_stats']
-            del kwargs['extra_stats']
-        else:
-            self.extra_stats = None
-
-        pstats.Stats.__init__(self, *args, **kwargs)
-
-    def print_tests_report(self):
+    def print_tests_report(self, limit=0):
         self.sort_stats('cumulative')
-        self.print_stats('\(test\_*')
+        attrs = ['\(test\_*']
+        if (isinstance(limit, (int, float))) and limit > 0:
+            attrs.append(limit)
+        self.print_stats(*attrs)
 
     def print_title(self):
-        print >> self.stream, 'calls  cumtime  percall',
+        header = '    calls%s  cumtime  percall' % \
+                  ('  tottime  percall' if not self.less_columns else '')
+        print >> self.stream, self.style.HEADER(header),
         if self.extra_stats:
-            print >> self.stream, self.extra_stats.name().rjust(9),
-        print >> self.stream, 'test (file:lineno [app])'
+            print >> self.stream, self.style.HEADER(self.extra_stats.name().rjust(9)),
+        print >> self.stream, self.style.HEADER('test (file:lineno)')
 
     def print_line(self, func):  # hack : should print percentages
         cc, nc, tt, ct, callers = self.stats[func] #@UnusedVariable
         c = str(nc)
         if nc != cc:
             c = c + '/' + str(cc)
-        print >> self.stream, c.rjust(5),
+        print >> self.stream, c.rjust(9),
+
+        if not self.less_columns:
+            print >> self.stream, pstats.f8(tt),
+            if nc == 0:
+                print >> self.stream, ' '*8,
+            else:
+                print >> self.stream, pstats.f8(float(tt) / nc),
+
         print >> self.stream, pstats.f8(ct),
         if cc == 0:
             print >> self.stream, ' '*8,
@@ -57,7 +77,7 @@ class ColorStats(pstats.Stats):
         if self.extra_stats:
             print >> self.stream, str(self.extra_stats[func[2]]).rjust(9),
 
-        print >> self.stream, self.func_test_string(func)
+        print >> self.stream, self.func_std_string(func)
 
     def func_test_string(self, func_name): # match what old profile produced
         if func_name[:2] == ('~', 0):
@@ -76,7 +96,7 @@ class ColorStats(pstats.Stats):
                  self.style.APP(file.parent.parent.name)))
 
     def print_callees(self, *amount):
-        width, list = self.get_print_list(amount)
+        width, list = self.get_print_list(amount) #@UnusedVariable
         width = 2
         if list:
             self.calc_callees()
@@ -91,17 +111,30 @@ class ColorStats(pstats.Stats):
             print >> self.stream
         return self
 
+    def print_callers(self, *amount):
+        width, list = self.get_print_list(amount) #@UnusedVariable
+        width = 2
+        if list:
+            self.print_call_heading(width, "was called by...")
+            for func in list:
+                cc, nc, tt, ct, callers = self.stats[func] #@UnusedVariable
+                self.print_call_line(width, func, callers, "<-")
+            print >> self.stream
+            print >> self.stream
+        return self
+
     def print_call_heading(self, name_size, column_title):
         print >> self.stream, self.style.HEADING("Function ".ljust(name_size) + column_title)
         # print sub-header only if we have new-style callers
         subheader = False
-        for cc, nc, tt, ct, callers in self.stats.itervalues():
+        for cc, nc, tt, ct, callers in self.stats.itervalues(): #@UnusedVariable
             if callers:
                 value = callers.itervalues().next()
                 subheader = isinstance(value, tuple)
                 break
         if subheader:
-            print >> self.stream, self.style.HEADER(" "*name_size + "    ncalls  tottime  cumtime")
+            print >> self.stream, self.style.HEADER(" "*name_size +
+                                                    "    ncalls  tottime  cumtime")
 
     def print_call_line(self, name_size, source, call_dict, arrow="->"):
         print >> self.stream, self.func_std_string(source).ljust(name_size) + arrow,
