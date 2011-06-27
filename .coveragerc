@@ -1,0 +1,9 @@
+# .coveragerc to control coverage.py
+
+[html]
+directory = htmlcov
+
+[run]
+include = *colortools*
+#omit = *migrations*
+

@@ -5,16 +5,18 @@ About
 Colorful replacement for Django's testrunner
 
 * Makes your test output more colorful
-* Profile report for all tests methods
+* Lets you utilize TDD's mantra "red/green/refactor" instead of "dot/F/refactor"
+* Generates profiling report for all tests methods
 * Runs you fixture heavy TestCases much faster
-* Reports db queries count for each test 
+* Reports db queries count for each test method
 
 ------------
 Installation
 ------------
 
-The code has been tested only on Django 1.3. It does some nasty monkey patching on 
-TestCase and TransactionTestCase classes so be careful. 
+The code has been tested only on Django 1.3 and PostgreSQL 8.4 on Linux platform.
+It does some nasty monkey patching on TestCase and TransactionTestCase classes so 
+be careful. 
 
 To install the latest stable version::
 
@@ -39,8 +41,8 @@ or::
 
 	TEST_RUNNER = "colortools.test.ColorProfilerDjangoTestSuiteRunner"
 
-The first test runner class will only add colors to your report. The second will also 
-generate pstats report for all test methods.
+The first test runner class will only add colors to your report. The second
+will also generate pstats report for all test methods.
  
 Additionally you can define a list of apps to test to exclude tests from django
 and other installed libraries::

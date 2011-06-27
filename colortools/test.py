@@ -41,7 +41,7 @@ class _ColorDecorator(object):
 
     def __getattr__(self, attr):
         if attr in ('stream', '__getstate__'):
-            raise AttributeError(attr) # pragma: no cover
+            raise AttributeError(attr)
         return getattr(self.stream, attr)
 
     def color(self, code):
@@ -54,9 +54,9 @@ class _ColorDecorator(object):
 
 
 class ColorTextTestResult(TextTestResult):
-    """A test result class that can print formatted text results to a stream the supports ANSI color output.
-
-    Used by TextTestRunner.
+    """
+    A test result class that can print formatted text results to a stream 
+    the supports ANSI color output. Used by TextTestRunner.
     """
 
     def __init__(self, *args, **kwargs):
