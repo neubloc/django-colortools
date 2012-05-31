@@ -15,7 +15,7 @@ from django.utils import termcolors
 from django.utils import unittest
 from django.test.testcases import connections_support_transactions, disable_transaction_methods
 from django.db import DEFAULT_DB_ALIAS
-
+from django.contrib.contenttypes.models import ContentType
 
 _COLORS = {
     'FAIL': {'fg': 'red', 'opts': ('bold', 'noreset')},
@@ -216,6 +216,7 @@ class ColorDjangoTestSuiteRunner(DjangoTestSuiteRunner):
                     flush_db = False
 
             if flush_db:
+                ContentType.objects.clear_cache()
                 self.flushes += 1
                 self.currernt_fixtures = []
                 for db in connections:
