@@ -2,13 +2,13 @@
 django-colortools
 ~~~~~~
 
-`django-colortools <http://www.github.com/neubloc/django-colortools>` 
+`django-colortools <http://www.github.com/neubloc/django-colortools>`
 
 :copyright: 2010 by David Cramer, 2011 by Neubloc, LLC.
 """
 
 __all__ = ('__version__', '__build__', '__docformat__', 'get_revision')
-__version__ = (0, 3, 2)
+__version__ = (0, 3, 3)
 __docformat__ = 'restructuredtext en'
 
 import os
